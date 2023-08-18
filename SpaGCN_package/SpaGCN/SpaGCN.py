@@ -10,7 +10,7 @@ from sklearn.decomposition import PCA
 import math
 import matplotlib.colors as clr
 import matplotlib.pyplot as plt
-from . models import *
+from models import *
 
 
 class SpaGCN(object):

@@ -9,7 +9,7 @@ from random import shuffle
 import pandas as pd
 import numpy as np
 import scanpy as sc
-from . layers import GraphConvolution
+from layers import GraphConvolution
 
 
 class simple_GC_DEC(nn.Module):
