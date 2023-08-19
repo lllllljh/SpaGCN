@@ -1,6 +1,7 @@
 import csv
 import math
 import os
+import random
 import sys
 
 import cv2
@@ -13,31 +14,15 @@ import torch.utils.data as dataloader
 import tensorboard_logger
 import pickle
 import numpy as np
+from matplotlib import pyplot as plt
 
 from scanpy import read_10x_h5
 from datetime import datetime
+
+from torch.backends import cudnn
+
 from calculate import *
 
-
-# def set_model(opt):
-#     if torch.cuda.is_available():
-#         device = torch.device(opt.device)
-#         cudnn.benchmark = True
-#     else:
-#         device = torch.device("cpu")
-#     model = GAT_GCN().to(device)
-#     criterion = ListNetLoss()
-#
-#     return model, criterion
-#
-#
-# def collate_fn(batch_list):
-#     batch = []
-#     for data_list in batch_list:
-#         batch.append(Batch.from_data_list(data_list))
-#
-#     return batch
-#
 
 def process_data(opt):
     # concat gene expression and position
@@ -75,6 +60,7 @@ def process_data(opt):
     prefilter_specialgenes(anndata)
     scanpy.pp.normalize_per_cell(anndata)
     scanpy.pp.log1p(anndata)
+    anndata.write_h5ad(opt.anndata_path)
 
     return anndata, adj
 
@@ -99,136 +85,38 @@ def set_data(opt):
             writer.writerows(data)
         print("l:", l, "res:", res)
 
+    anndata = scanpy.read(opt.anndata_path)
+    adj = np.loadtxt(opt.adj_path, delimiter=',')
+
     with open(opt.parameter_path, 'r', newline='') as file:
         reader = csv.reader(file)
         data = [row for row in reader]
+    l = float(data[1][0])
+    res = float(data[1][1])
 
-    l = data[1][0]
-    res = data[1][1]
+    return anndata, adj, l, res
 
-    return l, res
 
-#
-#
-# def set_optimizer(opt, model):
-#     optimizer = optim.Adam(model.parameters(),
-#                            lr=opt.learning_rate)
-#
-#     return optimizer
-#
-#
-# def save_model(model, optimizer, opt, epoch, save_file):
-#     print('Saving...')
-#     state = {
-#         'opt': opt,
-#         'model': model.state_dict(),
-#         'optimizer': optimizer.state_dict(),
-#         'epoch': epoch,
-#     }
-#     torch.save(state, save_file)
-#     del state
-#
-#
-# def train(train_drug_loader, train_target_loader, model, criterion, optimizer, epoch, opt):
-#     model.train()
-#     losses_drug = AverageMeter()
-#     losses_target = AverageMeter()
-#
-#     for i, batch_list in enumerate(train_target_loader):
-#         loss_total = 0
-#         optimizer.zero_grad()
-#         for data in batch_list:
-#             data.to(opt.device)
-#             outs = model(data)
-#             loss = criterion(outs, data.y.view(-1, 1).float().to(opt.device))
-#             loss = loss / len(batch_list) * 0.5
-#             loss_total += loss.item()
-#             loss.backward()
-#         losses_target.update(loss_total, 1)
-#         optimizer.step()
-#
-#         if i % opt.print_freq == 0:
-#             print('Train_Target epoch: {} [ ({:.0f}%)] \tLoss.avg: {:.6f}'.format(epoch,
-#                                                                                   100. * i / len(train_target_loader),
-#                                                                                   losses_target.avg))
-#
-#     for i, batch_list in enumerate(train_drug_loader):
-#         loss_total = 0
-#         optimizer.zero_grad()
-#         for data in batch_list:
-#             data.to(opt.device)
-#             outs = model(data)
-#             loss = criterion(outs, data.y.view(-1, 1).float().to(opt.device))
-#             loss = loss / len(batch_list) * 0.5
-#             loss_total += loss.item()
-#             loss.backward()
-#         losses_drug.update(loss_total, 1)
-#         optimizer.step()
-#
-#         if i % opt.print_freq == 0:
-#             print('Train_Drug epoch: {} [ ({:.0f}%)] \tLoss.avg: {:.6f}'.format(epoch,
-#                                                                                 100. * i / len(train_drug_loader),
-#                                                                                 losses_drug.avg))
-#
-#     torch.cuda.empty_cache()
-#
-#     return losses_drug.avg, losses_target.avg
-#
-#
-# def validate(val_loader, model, opt):
-#     model.eval()
-#     total_preds = torch.Tensor()
-#     total_labels = torch.Tensor()
-#     with torch.no_grad():
-#         for i, batch_list in enumerate(val_loader):
-#             for data in batch_list:
-#                 data.to(opt.device)
-#                 outs = model(data)
-#                 total_preds = torch.cat((total_preds, outs.cpu()), 0)
-#                 total_labels = torch.cat((total_labels, data.y.view(-1, 1).cpu()), 0)
-#
-#     return total_labels.numpy().flatten(), total_preds.numpy().flatten()
-#
-#
-# def test(val_loader, model, opt):
-#     model.eval()
-#     ci_list = []
-#     pearson_list = []
-#     with torch.no_grad():
-#         for i, batch_list in enumerate(val_loader):
-#             for data in batch_list:
-#                 data.to(opt.device)
-#                 outs = model(data)
-#                 y = data.y.view(-1, 1).cpu().numpy().flatten()
-#                 f = outs.cpu().numpy().flatten()
-#                 if len(set(y)) != 1:
-#                     ci_val = ci(y, f)
-#                     pearson_val = pearson(y, f)
-#                     ci_list.append(ci_val)
-#                     pearson_list.append(pearson_val)
-#     torch.cuda.empty_cache()
-#
-#     return ci_list, pearson_list
-#
-#
-# def valloss(val_loader, model, criterion, opt):
-#     model.eval()
-#     losses = AverageMeter()
-#     with torch.no_grad():
-#         for i, batch_list in enumerate(val_loader):
-#             loss_total = 0
-#             for data in batch_list:
-#                 data.to(opt.device)
-#                 outs = model(data)
-#                 loss = criterion(outs, data.y.view(-1, 1).float().to(opt.device))
-#                 loss = loss / len(batch_list)
-#                 loss_total += loss.item()
-#             losses.update(loss_total, 1)
-#         torch.cuda.empty_cache()
-#
-#     return losses.avg
-#
-#
+def train(opt, anndata, adj, l, res):
+    random.seed(opt.r_seed)
+    torch.manual_seed(opt.t_seed)
+    np.random.seed(opt.n_seed)
+
+    model = SpaGCN()
+    model.set_l(l)
+    model.train(adata=anndata, adj=adj, init_spa=True, init="louvain", res=res, tol=5e-3, lr=opt.learning_rate,
+                max_epochs=opt.epochs)
+    y_pred, prob = model.predict()
+    anndata.obs["pred"] = y_pred
+    anndata.obs["pred"] = anndata.obs["pred"].astype('category')
+    adj_2d = calculate_adj_matrix(x=list(anndata.obs["x_array"]), y=list(anndata.obs["y_array"]), histology=False)
+    refined_pred = refine(sample_id=anndata.obs.index.tolist(), pred=anndata.obs["pred"].tolist(), dis=adj_2d,
+                          shape="hexagon")
+    anndata.obs["refined_pred"] = refined_pred
+    anndata.obs["refined_pred"] = anndata.obs["refined_pred"].astype('category')
+    anndata.write_h5ad(os.path.join(opt.save_file_path, 'result.h5ad'))
+
+
 def parser_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_name', type=str, default='t1')
@@ -259,13 +147,14 @@ def parser_opt():
     parser.add_argument('--n_seed', type=int, default=100)
 
     parser.add_argument('--print_freq', type=int, default=1)
-    parser.add_argument('--epochs', type=int, default=500)
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--val_ratio', type=float, default=0)
     parser.add_argument('--workers', type=int, default=0)
 
-    parser.add_argument('--learning_rate', type=float, default=0.0005)
+    parser.add_argument('--learning_rate', type=float, default=0.05)
     parser.add_argument('--lr_decay_rate', type=float, default=0.1)
+    parser.add_argument('--tolerance', type=float, default=5e-3)
     parser.add_argument('--beta', type=float, default=49)
     parser.add_argument('--alpha', type=float, default=1)
 
@@ -283,68 +172,7 @@ def parser_opt():
 
 if __name__ == '__main__':
     opt = parser_opt()
-    l, res = set_data(opt)
+    anndata, adj, l, res = set_data(opt)
+    train(opt, anndata, adj, l, res)
 
-    # model, criterion = set_model(opt)
-    # optimizer = set_optimizer(opt, model)
-    # logger = tensorboard_logger.Logger(logdir=opt.save_file_path, flush_secs=2)
 
-    #
-    # # best_mse = 1000
-    # # best_test_mse = 1000
-    # # best_ci = 0
-    #
-    # best_test_ci = 0
-    # best_test_pearson = -1
-    # best_epoch = -1
-    # model_file_name = os.path.join(opt.save_file_path, 'best.pth')
-    # result_file_name = os.path.join(opt.save_file_path, 'result.csv')
-    #
-    # for epoch in range(1, opt.epochs + 1):
-    #     loss_drug, loss_target = train(train_drug_loader, train_target_loader, model, criterion, optimizer, epoch, opt)
-    #     print('train drug data loss:', loss_drug)
-    #     print('train target data loss:', loss_target)
-    #     logger.log_value('train_drug_loss', loss_drug, epoch)
-    #     logger.log_value('train_target_loss', loss_target, epoch)
-    #
-    #     # test_loss = valloss(test_loader, model, criterion, opt)
-    #     # print('test data loss:', test_loss)
-    #     # logger.log_value('test_loss', test_loss, epoch)
-    #     #
-    #     # G, P = validate(val_loader, model, opt)
-    #     # val = ci(G, P)
-    #     # logger.log_value('ci', val, epoch)
-    #     # print('predicting for valid data CI: ', val)
-    #
-    #     G, P = validate(test_loader, model, opt)
-    #     ci_val = ci(G, P)
-    #     pearson_val = pearson(G, P)
-    #     logger.log_value('test_ci', ci_val, epoch)
-    #     logger.log_value('test_pearson', pearson_val, epoch)
-    #     print('test_ci', ci_val, '; test_pearson', pearson_val)
-    #     if ci_val > best_test_ci:
-    #         best_test_ci = ci_val
-    #         best_test_pearson = pearson_val
-    #         best_epoch = epoch
-    #         print('ci improved at epoch ', best_epoch, '; best_test_ci:', best_test_ci)
-    #         print('ci improved at epoch ', best_epoch, '; best_test_pearson:', best_test_pearson)
-    #         save_model(model, optimizer, opt, opt.epochs, model_file_name)
-    #     else:
-    #         print('No improvement since epoch ', best_epoch, '; best_test_ci:', best_test_ci)
-    #         print('No improvement since epoch ', best_epoch, '; best_test_pearson:', best_test_pearson)
-    #     # if val > best_ci:
-    #     #     best_ci = val
-    #     #     best_epoch = epoch
-    #     #     save_model(model, optimizer, opt, opt.epochs, model_file_name)
-    #     #     print('predicting for test data')
-    #     #     G, P = validate(test_loader, model, opt)
-    #     #     ret = [rmse(G, P), mse(G, P), pearson(G, P), spearman(G, P), ci(G, P)]
-    #     #     with open(result_file_name, 'w') as f:
-    #     #         f.write(','.join(map(str, ret)))
-    #     #     best_test_ci = ci(G, P)
-    #     #     print('CI improved at epoch ', best_epoch, '; best_test_ci:', best_test_ci)
-    #     # else:
-    #     #     print(ret[-1], 'No improvement since epoch ', best_epoch, '; best_test_ci:', best_test_ci)
-    #
-    # save_file = os.path.join(opt.save_file_path, 'last.pth')
-    # save_model(model, optimizer, opt, opt.epochs, save_file)

@@ -11,6 +11,28 @@ import torch
 from SpaGCN import SpaGCN
 
 
+class AverageMeter(object):
+
+    def __init__(self):
+        self.sum = 0
+        self.avg = 0
+        self.val = 0
+        self.count = 0
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
 # L2 distance
 @numba.njit("f4(f4[:], f4[:])")
 def euclid_dist(t1, t2):
@@ -205,3 +227,30 @@ def search_res(adata, adj, l, target_num, start=0.4, step=0.1, tol=5e-3, lr=0.05
         run += 1
     print("recommended res = ", str(res))
     return res
+
+
+def refine(sample_id, pred, dis, shape="hexagon"):
+    refined_pred = []
+    pred = pd.DataFrame({"pred": pred}, index=sample_id)
+    dis_df = pd.DataFrame(dis, index=sample_id, columns=sample_id)
+    if shape == "hexagon":
+        num_nbs = 6
+    elif shape == "square":
+        num_nbs = 4
+    else:
+        print("Shape not recongized, shape='hexagon' for Visium data, 'square' for ST data.")
+    for i in range(len(sample_id)):
+        index = sample_id[i]
+        dis_tmp = dis_df.loc[index, :].sort_values()
+        nbs = dis_tmp[0:num_nbs + 1]
+        nbs_pred = pred.loc[nbs.index, "pred"]
+        self_pred = pred.loc[index, "pred"]
+        v_c = nbs_pred.value_counts()
+        if (v_c.loc[self_pred] < num_nbs / 2) and (np.max(v_c) > num_nbs / 2):
+            refined_pred.append(v_c.idxmax())
+        else:
+            refined_pred.append(self_pred)
+    return refined_pred
+
+def cal_ari():
+    return 1
